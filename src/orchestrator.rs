@@ -6,10 +6,11 @@ use serde_json::json;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::backend::Backend;
 use crate::config::Config;
+use crate::dedup::{self, Deduper, Marker};
 use crate::events::{Bus, Event};
 use crate::hardware;
 use crate::lockfile::Lockfile;
@@ -110,26 +111,27 @@ async fn run_session(lockfile: Lockfile, backend: Backend, bus: Bus, cfg: Config
 
 async fn collector_loop(session: Arc<Session>, backend: Backend, interval_secs: u64) {
     let mut ticker = interval(Duration::from_secs(interval_secs));
+    let mut deduper = Deduper::new();
     loop {
         ticker.tick().await;
-        collect_once(&session, &backend).await;
+        collect_once(&session, &backend, &mut deduper).await;
     }
 }
 
-// fetch each riot endpoint and forward the raw body to the matching server path
-async fn collect_once(session: &Session, backend: &Backend) {
+async fn collect_once(session: &Session, backend: &Backend, deduper: &mut Deduper) {
     let puuid = session.puuid().await;
 
     let targets = [
-        Target::get(Api::Pd, format!("/account-xp/v1/players/{puuid}"), "/v1/account/xp"),
-        Target::get(Api::Pd, "/restrictions/v3/penalties".into(), "/v1/account/penalties"),
-        Target::get(Api::Pd, format!("/store/v1/wallet/{puuid}"), "/v1/account/balances"),
-        Target::get(Api::Pd, format!("/store/v1/entitlements/{puuid}"), "/v1/account/owned-items"),
+        Target::get(Api::Pd, format!("/account-xp/v1/players/{puuid}"), "/v1/account/xp", Marker::Field("Version")),
+        Target::get(Api::Pd, "/restrictions/v3/penalties".into(), "/v1/account/penalties", Marker::Field("Version")),
+        Target::get(Api::Pd, format!("/store/v1/wallet/{puuid}"), "/v1/account/balances", Marker::Field("Balances")),
+        Target::get(Api::Pd, format!("/store/v1/entitlements/{puuid}"), "/v1/account/owned-items", Marker::Hash),
         Target::post(
             Api::Pd,
             format!("/store/v3/storefront/{puuid}"),
             "/v1/account/storefront",
             json!({}),
+            Marker::Field("SkinsPanelLayout/SingleItemStoreOffers"),
         ),
     ];
 
@@ -139,7 +141,12 @@ async fn collect_once(session: &Session, backend: &Backend) {
             .await
         {
             Ok(response) if response.status.is_success() => {
-                backend.submit(target.server_path, &response.body).await;
+                let marker = dedup::marker(&response.body, &target.dedup);
+                if deduper.changed(target.server_path, marker) {
+                    backend.submit(target.server_path, &response.body).await;
+                } else {
+                    debug!("{} unchanged, skipping", target.server_path);
+                }
             }
             Ok(response) => warn!("{} returned {}", target.path, response.status),
             Err(e) => warn!("{} failed: {e}", target.path),
@@ -153,26 +160,35 @@ struct Target {
     path: String,
     server_path: &'static str,
     body: Option<serde_json::Value>,
+    dedup: Marker,
 }
 
 impl Target {
-    fn get(api: Api, path: String, server_path: &'static str) -> Self {
+    fn get(api: Api, path: String, server_path: &'static str, dedup: Marker) -> Self {
         Self {
             method: Method::GET,
             api,
             path,
             server_path,
             body: None,
+            dedup,
         }
     }
 
-    fn post(api: Api, path: String, server_path: &'static str, body: serde_json::Value) -> Self {
+    fn post(
+        api: Api,
+        path: String,
+        server_path: &'static str,
+        body: serde_json::Value,
+        dedup: Marker,
+    ) -> Self {
         Self {
             method: Method::POST,
             api,
             path,
             server_path,
             body: Some(body),
+            dedup,
         }
     }
 }

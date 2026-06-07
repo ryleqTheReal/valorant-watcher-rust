@@ -17,6 +17,7 @@ use tracing::{debug, info, warn};
 
 use crate::backend::Backend;
 use crate::config::Config;
+use crate::dedup::{self, Marker};
 use crate::events::{Bus, Event};
 use crate::lockfile::Lockfile;
 use crate::session::{Api, Session};
@@ -150,8 +151,13 @@ impl Drop for Tracker {
     }
 }
 
-// spam the pregame match endpoint and forward every response, so the server can
-// reconstruct the lock-in flow. stops on 404 or when agent select is finished.
+const PREGAME_VOLATILE: &[&str] = &[
+    "Version",
+    "PhaseTimeRemainingNS",
+    "StepTimeRemainingNS",
+    "LastUpdated",
+];
+
 async fn poll_pregame(session: Arc<Session>, backend: Backend, interval_ms: u64) {
     let puuid = session.puuid().await;
     let Some(match_id) = fetch_match_id(&session, &format!("/pregame/v1/players/{puuid}")).await
@@ -163,12 +169,17 @@ async fn poll_pregame(session: Arc<Session>, backend: Backend, interval_ms: u64)
     info!("pregame poll started for match {match_id} (every {interval_ms}ms)");
     let path = format!("/pregame/v1/matches/{match_id}");
     let mut ticker = interval(Duration::from_millis(interval_ms));
+    let mut last_marker: Option<String> = None;
 
     loop {
         ticker.tick().await;
         match session.fetch(Method::GET, Api::Glz, &path, None).await {
             Ok(response) if response.status.is_success() => {
-                backend.submit("/v1/pregame", &response.body).await;
+                let marker = dedup::marker(&response.body, &Marker::HashExcluding(PREGAME_VOLATILE));
+                if last_marker.as_deref() != Some(marker.as_str()) {
+                    last_marker = Some(marker);
+                    backend.submit("/v1/pregame", &response.body).await;
+                }
                 if response.body.contains("character_select_finished") {
                     info!("pregame poll ended: agent select finished");
                     return;
