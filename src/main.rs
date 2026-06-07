@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+mod backend;
 mod config;
 mod error;
 mod events;
