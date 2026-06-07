@@ -643,14 +643,7 @@ fn percent_decode(input: &str) -> String {
 }
 
 fn open_browser(url: &str) {
-    #[cfg(target_os = "windows")]
-    let result = std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
-        .spawn();
-    #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("open").arg(url).spawn();
-
-    if let Err(e) = result {
+    if let Err(e) = open::that_detached(url) {
         warn!("could not open browser automatically, open this url manually: {url} ({e})");
     }
 }

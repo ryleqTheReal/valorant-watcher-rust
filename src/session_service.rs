@@ -88,11 +88,15 @@ impl SessionService {
 
     async fn post_state(&mut self, state: &str) {
         match self.post_event(state).await {
-            EventResult::Sent => self.last_state = Some(state.to_string()),
+            EventResult::Sent => {
+                info!("session event sent: {state}");
+                self.last_state = Some(state.to_string());
+            }
             EventResult::Lost => {
                 info!("backend session lost, reopening");
                 self.session_id = None;
                 if self.open_session().await && self.post_event(state).await == EventResult::Sent {
+                    info!("session event sent: {state}");
                     self.last_state = Some(state.to_string());
                 }
             }
@@ -179,7 +183,7 @@ impl SessionService {
                     }
                 }
             }
-            Ok(_) => {}
+            Ok(_) => info!("session ping ok ({session_id})"),
             Err(e) => warn!("session ping failed: {e}"),
         }
     }
