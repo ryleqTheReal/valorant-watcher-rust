@@ -16,6 +16,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      - name: set version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $v = $env:GITHUB_REF_NAME -replace '^v', ''
+          (Get-Content Cargo.toml -Raw) -replace '(?m)^version = ".*"', "version = `"$v`"" | Set-Content Cargo.toml
+          Write-Host "version set to $v"
+
       - name: build
         run: cargo build --release
 
@@ -49,6 +57,13 @@ jobs:
         with:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
+
+      - name: set version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          sed -i '' -E 's/^version = ".*"/version = "'"$v"'"/' Cargo.toml
+          echo "version set to $v"
 
       - name: build universal binary
         run: |

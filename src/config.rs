@@ -24,6 +24,9 @@ pub struct Config {
 
     #[serde(default = "default_pregame_poll_interval_ms")]
     pub pregame_poll_interval_ms: u64,
+
+    #[serde(default = "default_true")]
+    pub auto_update: bool,
 }
 
 impl Config {

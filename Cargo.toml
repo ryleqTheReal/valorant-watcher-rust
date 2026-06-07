@@ -26,6 +26,7 @@ native-tls = "0.2"
 futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
 open = "5"
+self_update = { version = "0.41", default-features = false, features = ["rustls", "archive-zip", "compression-zip-deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

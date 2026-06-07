@@ -14,6 +14,7 @@ mod orchestrator;
 mod paths;
 mod session;
 mod session_service;
+mod updater;
 mod watchers;
 mod ws;
 
@@ -48,6 +49,10 @@ async fn run() -> Result<()> {
         "config loaded"
     );
 
+    if cfg.auto_update {
+        updater::check_and_apply().await;
+    }
+
     let bus = Bus::new();
 
     // start the orchestrator first so it is subscribed before the watchers emit
@@ -71,9 +76,14 @@ async fn run() -> Result<()> {
     Ok(())
 }
 
-// resolves once ctrl + c is received
+// resolves once ctrl + c is received. in a gui build there is no console to
+// deliver ctrl-c, so we must not treat that as a shutdown; run until terminated.
 async fn shutdown_signal() {
-    if let Err(e) = tokio::signal::ctrl_c().await {
-        error!("failed to listen for shutdown signal: {e}");
+    match tokio::signal::ctrl_c().await {
+        Ok(()) => info!("ctrl-c received"),
+        Err(e) => {
+            error!("ctrl-c handler unavailable ({e}); running until terminated");
+            std::future::pending::<()>().await;
+        }
     }
 }
