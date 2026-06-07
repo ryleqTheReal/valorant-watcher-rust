@@ -1,0 +1,8 @@
+{
+    "server_base_url": "https://www.valorant-streamsniper.com",
+    "poll_interval": 1,
+    "collect_interval": 60,
+    "enable_data_sending": true,
+    "ratelimit_timeout": 60,
+    "ratelimit_offset": 60
+}
