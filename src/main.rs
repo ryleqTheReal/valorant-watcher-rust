@@ -11,6 +11,7 @@ mod orchestrator;
 mod paths;
 mod session;
 mod watchers;
+mod ws;
 
 use tracing::{error, info};
 

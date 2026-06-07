@@ -17,6 +17,9 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 sysinfo = "0.33"
 regex = "1"
 sha2 = "0.10"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+native-tls = "0.2"
+futures-util = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

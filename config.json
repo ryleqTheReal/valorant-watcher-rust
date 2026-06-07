@@ -4,5 +4,6 @@
     "collect_interval": 60,
     "enable_data_sending": true,
     "ratelimit_timeout": 60,
-    "ratelimit_offset": 60
+    "ratelimit_offset": 60,
+    "pregame_poll_interval_ms": 250
 }

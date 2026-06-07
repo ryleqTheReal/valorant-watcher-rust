@@ -21,6 +21,9 @@ pub struct Config {
 
     #[serde(default = "default_ratelimit_offset")]
     pub ratelimit_offset: u64,
+
+    #[serde(default = "default_pregame_poll_interval_ms")]
+    pub pregame_poll_interval_ms: u64,
 }
 
 impl Config {
@@ -50,4 +53,8 @@ fn default_ratelimit_timeout() -> u64 {
 
 fn default_ratelimit_offset() -> u64 {
     60
+}
+
+fn default_pregame_poll_interval_ms() -> u64 {
+    250
 }

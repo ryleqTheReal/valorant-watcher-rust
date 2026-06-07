@@ -105,8 +105,32 @@ impl Backend {
         &self.base_url
     }
 
-    pub fn client(&self) -> &reqwest::Client {
-        &self.client
+    // post a raw riot response body to the server using the game token headers
+    pub async fn submit(&self, path: &str, body: &str) {
+        let headers = match self.game_headers().await {
+            Some(headers) => headers,
+            None => {
+                info!("game token unavailable, skipping submission to {path}");
+                return;
+            }
+        };
+
+        let mut request = self
+            .client
+            .post(format!("{}{path}", self.base_url))
+            .header("Content-Type", "application/json")
+            .body(body.to_string());
+        for (key, value) in headers {
+            request = request.header(key, value);
+        }
+
+        match request.send().await {
+            Ok(response) if response.status().is_success() => {
+                info!("submitted {path} ({})", response.status());
+            }
+            Ok(response) => warn!("submit {path} returned {}", response.status()),
+            Err(e) => warn!("submit {path} failed: {e}"),
+        }
     }
 
     // ensure an app token is held: refresh from disk if possible, otherwise run

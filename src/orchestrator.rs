@@ -14,6 +14,7 @@ use crate::events::{Bus, Event};
 use crate::hardware;
 use crate::lockfile::Lockfile;
 use crate::session::{Api, Session};
+use crate::ws;
 
 // owns the app lifecycle: backend auth at startup, then a riot session per
 // rso login that authenticates and forwards data on a fixed interval.
@@ -71,6 +72,7 @@ pub async fn run(cfg: Config, bus: Bus) {
 }
 
 async fn run_session(lockfile: Lockfile, backend: Backend, cfg: Config) {
+    let ws_lockfile = lockfile.clone();
     let mut session = match Session::new(lockfile) {
         Ok(session) => session,
         Err(e) => {
@@ -94,8 +96,9 @@ async fn run_session(lockfile: Lockfile, backend: Backend, cfg: Config) {
     let refresh = session.clone();
 
     tokio::select! {
-        _ = collector_loop(session.clone(), backend, cfg.collect_interval) => {}
+        _ = collector_loop(session.clone(), backend.clone(), cfg.collect_interval) => {}
         _ = refresh.proactive_refresh_loop() => {}
+        _ = ws::run(ws_lockfile, session.clone(), backend.clone(), cfg.clone()) => {}
     }
 }
 
@@ -130,39 +133,11 @@ async fn collect_once(session: &Session, backend: &Backend) {
             .await
         {
             Ok(response) if response.status.is_success() => {
-                submit(backend, target.server_path, &response.body).await;
+                backend.submit(target.server_path, &response.body).await;
             }
             Ok(response) => warn!("{} returned {}", target.path, response.status),
             Err(e) => warn!("{} failed: {e}", target.path),
         }
-    }
-}
-
-// post a raw riot response body to the server using the game token headers
-async fn submit(backend: &Backend, path: &str, body: &str) {
-    let headers = match backend.game_headers().await {
-        Some(headers) => headers,
-        None => {
-            info!("game token unavailable, skipping submission to {path}");
-            return;
-        }
-    };
-
-    let mut request = backend
-        .client()
-        .post(format!("{}{path}", backend.base_url()))
-        .header("Content-Type", "application/json")
-        .body(body.to_string());
-    for (key, value) in headers {
-        request = request.header(key, value);
-    }
-
-    match request.send().await {
-        Ok(response) if response.status().is_success() => {
-            info!("submitted {path} ({})", response.status());
-        }
-        Ok(response) => warn!("submit {path} returned {}", response.status()),
-        Err(e) => warn!("submit {path} failed: {e}"),
     }
 }
 
