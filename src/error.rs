@@ -13,11 +13,17 @@ pub enum Error {
     #[error("malformed lockfile: {0}")]
     Lockfile(String),
 
+    #[error("auth error: {0}")]
+    Auth(String),
+
     #[error(transparent)]
     Io(#[from] io::Error),
 
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+
+    #[error(transparent)]
+    Http(#[from] reqwest::Error),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
