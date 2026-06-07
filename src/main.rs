@@ -2,6 +2,7 @@
 
 mod backend;
 mod config;
+mod dedup;
 mod error;
 mod events;
 mod hardware;
