@@ -4,6 +4,7 @@ mod backend;
 mod config;
 mod error;
 mod events;
+mod hardware;
 mod lockfile;
 mod logging;
 mod paths;
