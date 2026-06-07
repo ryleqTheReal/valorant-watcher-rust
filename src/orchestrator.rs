@@ -14,6 +14,7 @@ use crate::events::{Bus, Event};
 use crate::hardware;
 use crate::lockfile::Lockfile;
 use crate::session::{Api, Session};
+use crate::session_service;
 use crate::ws;
 
 // owns the app lifecycle: backend auth at startup, then a riot session per
@@ -28,6 +29,9 @@ pub async fn run(cfg: Config, bus: Bus) {
     };
 
     let mut rx = bus.subscribe();
+
+    // start the session pinger early so it observes state events from the start
+    let session_pinger = tokio::spawn(session_service::run(bus.clone(), backend.clone()));
 
     match hardware::collect_hwid() {
         Some(hwid) => backend.set_hwid(hwid).await,
@@ -50,8 +54,9 @@ pub async fn run(cfg: Config, bus: Bus) {
             Ok(Event::RsoLogin(lockfile)) => {
                 abort(&mut session_task);
                 let backend = backend.clone();
+                let bus = bus.clone();
                 let cfg = cfg.clone();
-                session_task = Some(tokio::spawn(run_session(lockfile, backend, cfg)));
+                session_task = Some(tokio::spawn(run_session(lockfile, backend, bus, cfg)));
             }
             Ok(Event::RsoLogout) => {
                 abort(&mut session_task);
@@ -68,10 +73,11 @@ pub async fn run(cfg: Config, bus: Bus) {
     }
 
     backend_refresh.abort();
+    let _ = session_pinger.await;
     info!("orchestrator stopped");
 }
 
-async fn run_session(lockfile: Lockfile, backend: Backend, cfg: Config) {
+async fn run_session(lockfile: Lockfile, backend: Backend, bus: Bus, cfg: Config) {
     let ws_lockfile = lockfile.clone();
     let mut session = match Session::new(lockfile) {
         Ok(session) => session,
@@ -98,7 +104,7 @@ async fn run_session(lockfile: Lockfile, backend: Backend, cfg: Config) {
     tokio::select! {
         _ = collector_loop(session.clone(), backend.clone(), cfg.collect_interval) => {}
         _ = refresh.proactive_refresh_loop() => {}
-        _ = ws::run(ws_lockfile, session.clone(), backend.clone(), cfg.clone()) => {}
+        _ = ws::run(ws_lockfile, session.clone(), backend.clone(), bus.clone(), cfg.clone()) => {}
     }
 }
 

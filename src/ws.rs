@@ -17,6 +17,7 @@ use tracing::{debug, info, warn};
 
 use crate::backend::Backend;
 use crate::config::Config;
+use crate::events::{Bus, Event};
 use crate::lockfile::Lockfile;
 use crate::session::{Api, Session};
 
@@ -27,9 +28,9 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 // listen to the local riot client websocket and drive pregame/ingame collection
 // off the player's own sessionLoopState. reconnects until the task is aborted.
-pub async fn run(lockfile: Lockfile, session: Arc<Session>, backend: Backend, cfg: Config) {
+pub async fn run(lockfile: Lockfile, session: Arc<Session>, backend: Backend, bus: Bus, cfg: Config) {
     loop {
-        if let Err(e) = connect_and_listen(&lockfile, &session, &backend, &cfg).await {
+        if let Err(e) = connect_and_listen(&lockfile, &session, &backend, &bus, &cfg).await {
             debug!("websocket not ready ({e}), reconnecting in 3s");
         }
         sleep(Duration::from_secs(3)).await;
@@ -40,6 +41,7 @@ async fn connect_and_listen(
     lockfile: &Lockfile,
     session: &Arc<Session>,
     backend: &Backend,
+    bus: &Bus,
     cfg: &Config,
 ) -> Result<(), BoxError> {
     let connector = Connector::NativeTls(
@@ -58,7 +60,7 @@ async fn connect_and_listen(
     ws.send(Message::Text(SUBSCRIBE_PRESENCE.into())).await?;
     info!("connected to riot client websocket on port {}", lockfile.port);
 
-    let mut tracker = Tracker::new(session.clone(), backend.clone(), cfg.clone());
+    let mut tracker = Tracker::new(session.clone(), backend.clone(), bus.clone(), cfg.clone());
 
     while let Some(message) = ws.next().await {
         match message? {
@@ -75,16 +77,18 @@ async fn connect_and_listen(
 struct Tracker {
     session: Arc<Session>,
     backend: Backend,
+    bus: Bus,
     cfg: Config,
     state: Option<String>,
     pregame: Option<JoinHandle<()>>,
 }
 
 impl Tracker {
-    fn new(session: Arc<Session>, backend: Backend, cfg: Config) -> Self {
+    fn new(session: Arc<Session>, backend: Backend, bus: Bus, cfg: Config) -> Self {
         Self {
             session,
             backend,
+            bus,
             cfg,
             state: None,
             pregame: None,
@@ -100,9 +104,14 @@ impl Tracker {
             return;
         }
 
-        // leaving pregame stops the spam loop
-        if self.state.as_deref() == Some("PREGAME") {
-            self.stop_pregame();
+        // announce the end of the previous state, stopping the pregame spam first
+        match self.state.as_deref() {
+            Some("PREGAME") => {
+                self.stop_pregame();
+                self.bus.emit(Event::PregameEnded);
+            }
+            Some("INGAME") => self.bus.emit(Event::MatchEnded),
+            _ => {}
         }
 
         info!("session state -> {new_state}");
@@ -110,6 +119,7 @@ impl Tracker {
 
         match new_state.as_str() {
             "PREGAME" => {
+                self.bus.emit(Event::PregameStarted);
                 self.pregame = Some(tokio::spawn(poll_pregame(
                     self.session.clone(),
                     self.backend.clone(),
@@ -117,6 +127,7 @@ impl Tracker {
                 )));
             }
             "INGAME" => {
+                self.bus.emit(Event::MatchStarted);
                 tokio::spawn(fetch_ingame_loadouts(
                     self.session.clone(),
                     self.backend.clone(),

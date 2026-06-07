@@ -105,6 +105,15 @@ impl Backend {
         &self.base_url
     }
 
+    pub async fn app_access_token(&self) -> Option<String> {
+        self.tokens
+            .read()
+            .await
+            .app
+            .as_ref()
+            .map(|app| app.access_token.clone())
+    }
+
     // post a raw riot response body to the server using the game token headers
     pub async fn submit(&self, path: &str, body: &str) {
         let headers = match self.game_headers().await {

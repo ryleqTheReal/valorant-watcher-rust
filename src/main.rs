@@ -10,6 +10,7 @@ mod logging;
 mod orchestrator;
 mod paths;
 mod session;
+mod session_service;
 mod watchers;
 mod ws;
 

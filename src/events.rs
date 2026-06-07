@@ -11,6 +11,10 @@ pub enum Event {
     RsoLogout,
     ValorantOpened(Lockfile),
     ValorantClosed,
+    PregameStarted,
+    PregameEnded,
+    MatchStarted,
+    MatchEnded,
     Shutdown,
 }
 
