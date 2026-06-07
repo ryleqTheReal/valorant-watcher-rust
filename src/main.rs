@@ -14,11 +14,12 @@ mod orchestrator;
 mod paths;
 mod session;
 mod session_service;
+mod single_instance;
 mod updater;
 mod watchers;
 mod ws;
 
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::error::Result;
@@ -52,6 +53,19 @@ async fn run() -> Result<()> {
     if cfg.auto_update {
         updater::check_and_apply().await;
     }
+
+    // acquired after the update check so the restart handoff never races on the lock
+    let _instance = match single_instance::acquire() {
+        Ok(Some(lock)) => Some(lock),
+        Ok(None) => {
+            info!("another instance is already running, exiting");
+            return Ok(());
+        }
+        Err(e) => {
+            warn!("could not acquire single-instance lock: {e}, continuing");
+            None
+        }
+    };
 
     let bus = Bus::new();
 
