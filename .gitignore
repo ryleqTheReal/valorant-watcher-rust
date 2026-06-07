@@ -1,1 +1,5 @@
 /target
+/staging
+/installer/windows/Output
+/valorant-watcher-windows.zip
+/valorant-watcher-macos.zip

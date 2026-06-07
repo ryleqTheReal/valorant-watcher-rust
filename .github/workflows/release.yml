@@ -1,0 +1,74 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: build
+        run: cargo build --release
+
+      - name: package payload zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item target/release/valorant-watcher.exe staging/
+          Compress-Archive -Path staging/valorant-watcher.exe -DestinationPath valorant-watcher-windows.zip -Force
+
+      - name: build installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" installer/windows/valorant-watcher.iss
+
+      - name: upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            valorant-watcher-windows.zip
+            installer/windows/Output/valorant-watcher-setup.exe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      - name: build universal binary
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          mkdir -p staging
+          lipo -create -output staging/valorant-watcher \
+            target/x86_64-apple-darwin/release/valorant-watcher \
+            target/aarch64-apple-darwin/release/valorant-watcher
+
+      - name: package zip
+        run: |
+          cp config.json staging/
+          cp installer/macos/install.command staging/
+          cp installer/macos/uninstall.command staging/
+          chmod +x staging/install.command staging/uninstall.command staging/valorant-watcher
+          (cd staging && zip -r ../valorant-watcher-macos.zip .)
+
+      - name: upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: valorant-watcher-macos.zip
