@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+// no console window in release builds; dev builds keep it for live logs
+#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
 mod backend;
 mod config;
