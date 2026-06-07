@@ -7,6 +7,7 @@ mod events;
 mod hardware;
 mod lockfile;
 mod logging;
+mod orchestrator;
 mod paths;
 mod session;
 mod watchers;
@@ -43,6 +44,9 @@ async fn run() -> Result<()> {
     );
 
     let bus = Bus::new();
+
+    // start the orchestrator first so it is subscribed before the watchers emit
+    let orchestrator = tokio::spawn(orchestrator::run(cfg.clone(), bus.clone()));
     bus.emit(Event::Startup);
 
     let handles = vec![
@@ -54,6 +58,7 @@ async fn run() -> Result<()> {
     info!("shutdown signal received, stopping");
     bus.emit(Event::Shutdown);
 
+    let _ = orchestrator.await;
     for handle in handles {
         let _ = handle.await;
     }
