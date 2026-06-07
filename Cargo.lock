@@ -3,6 +3,32 @@
 version = 4
 
 [[package]]
+name = "BETA-valorant-watcher"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "dirs",
+ "futures-util",
+ "native-tls",
+ "open",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sysinfo",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "uuid",
+ "winreg",
+ "winresource",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1924,32 +1950,6 @@ dependencies = [
  "getrandom 0.4.2",
  "js-sys",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "valorant-watcher-rewrite"
-version = "0.1.0"
-dependencies = [
- "base64",
- "dirs",
- "futures-util",
- "native-tls",
- "open",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "sysinfo",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "uuid",
- "winreg",
- "winresource",
 ]
 
 [[package]]
