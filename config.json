@@ -1,5 +1,5 @@
 {
-    "server_base_url": "https://www.valorant-streamsniper.com",
+    "server_base_url": "https://valstats.site",
     "poll_interval": 1,
     "collect_interval": 60,
     "enable_data_sending": true,
