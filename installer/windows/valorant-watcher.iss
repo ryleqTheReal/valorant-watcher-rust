@@ -14,6 +14,8 @@
 #define WatcherDirName  "valorant-watcher"
 #define WatcherZipName  "valorant-watcher-windows.zip"
 #define WatcherURL      "https://github.com/ryleqTheReal/valorant-watcher-rust/releases/latest/download/valorant-watcher-windows.zip"
+#define ConfigURL       "https://github.com/ryleqTheReal/valorant-watcher-rust/releases/latest/download/config.json"
+#define ConfigName      "config.json"
 #define RunKey          "Software\Microsoft\Windows\CurrentVersion\Run"
 #define RunValue        "ValorantWatcher"
 
@@ -34,10 +36,6 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-
-[Files]
-; bundled defaults, kept across updates so user edits survive
-Source: "{#SourcePath}..\..\config.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
 
 [Registry]
 Root: HKCU; Subkey: "{#RunKey}"; ValueType: string; ValueName: "{#RunValue}"; \
@@ -64,6 +62,7 @@ begin
   begin
     DownloadPage.Clear;
     DownloadPage.Add('{#WatcherURL}', '{#WatcherZipName}', '');
+    DownloadPage.Add('{#ConfigURL}', '{#ConfigName}', '');
     DownloadPage.Show;
     try
       try
@@ -86,7 +85,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
-  ZipPath, DestPath: String;
+  ZipPath, DestPath, ConfigSrc, ConfigDst: String;
 begin
   if CurStep = ssInstall then
   begin
@@ -108,6 +107,11 @@ begin
         mbCriticalError, MB_OK);
       Exit;
     end;
+    // copy downloaded config only on first install; preserve user edits on updates
+    ConfigSrc := ExpandConstant('{tmp}\{#ConfigName}');
+    ConfigDst := ExpandConstant('{app}\{#ConfigName}');
+    if not FileExists(ConfigDst) then
+      FileCopy(ConfigSrc, ConfigDst, False);
     // launch once so the user can complete first-time login
     Exec(ExpandConstant('{app}\{#MyAppExeName}'), '', DestPath, SW_SHOWNORMAL,
       ewNoWait, ResultCode);

@@ -38,7 +38,7 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" installer/windows/valorant-watcher.iss
 
       - name: upload to release
@@ -48,6 +48,7 @@ jobs:
           files: |
             valorant-watcher-windows.zip
             installer/windows/Output/valorant-watcher-setup.exe
+            config.json
 
   macos:
     runs-on: macos-latest
