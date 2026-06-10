@@ -296,10 +296,11 @@ impl Backend {
                 return;
             }
 
+            // floor at 30s so an expired token never produces a tight spin
             let (sleep_for, refresh_app) = if app_remaining <= game_remaining {
-                ((app_remaining * 0.75).max(0.0), true)
+                ((app_remaining * 0.75).max(30.0), true)
             } else {
-                ((game_remaining * 0.75).max(0.0), false)
+                ((game_remaining * 0.75).max(30.0), false)
             };
 
             sleep(Duration::from_secs_f64(sleep_for)).await;

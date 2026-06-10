@@ -307,11 +307,10 @@ impl Session {
     pub async fn proactive_refresh_loop(&self) {
         loop {
             let lifetime = self.state.read().await.expires_at - now_unix();
-            let sleep_for = (lifetime * 0.75).max(0.0);
-            if sleep_for > 0.0 {
-                debug!("proactive refresh scheduled in {sleep_for:.0}s");
-                sleep(Duration::from_secs_f64(sleep_for)).await;
-            }
+            // floor at 30s so an expired token never produces a tight spin
+            let sleep_for = (lifetime * 0.75).max(30.0);
+            debug!("proactive refresh scheduled in {sleep_for:.0}s");
+            sleep(Duration::from_secs_f64(sleep_for)).await;
             if let Err(e) = self.refresh_entitlements().await {
                 warn!("proactive refresh failed: {e}, retrying in 60s");
                 sleep(Duration::from_secs(60)).await;
