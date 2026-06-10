@@ -32,7 +32,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path staging | Out-Null
           Copy-Item target/release/valorant-watcher.exe staging/
-          Compress-Archive -Path staging/valorant-watcher.exe -DestinationPath valorant-watcher-windows.zip -Force
+          Copy-Item config.json staging/
+          Compress-Archive -Path staging/* -DestinationPath valorant-watcher-windows.zip -Force
 
       - name: build installer
         shell: pwsh
