@@ -171,11 +171,11 @@ impl Backend {
             }
         }
 
-        info!("running discord oauth loopback login for app token");
-        let proof = match self.discord_login().await {
+        info!("running oauth loopback login for app token");
+        let proof = match self.oauth_login().await {
             Ok(proof) => proof,
             Err(e) => {
-                error!("discord login failed: {e}");
+                error!("oauth login failed: {e}");
                 return false;
             }
         };
@@ -346,26 +346,19 @@ impl Backend {
         }
     }
 
-    // --- discord oauth loopback --- 
+    // --- oauth loopback ---
 
-    async fn discord_login(&self) -> Result<LoginProof> {
+    async fn oauth_login(&self) -> Result<LoginProof> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
-        let loopback = format!("http://127.0.0.1:{port}/callback");
+        let loopback = format!("http://localhost:{port}/callback");
 
-        let auth_url = self
-            .client
-            .get(format!("{}/v1/auth/discord", self.base_url))
-            .query(&[("redirect", "false"), ("loopback_redirect", &loopback)])
-            .send()
-            .await?
-            .error_for_status()?
-            .text()
-            .await?;
-        let auth_url = auth_url.trim().trim_matches('"').to_string();
+        let login_url = format!(
+            "https://valstats.site/login/?redirect=http%3A%2F%2Flocalhost%3A{port}%2Fcallback"
+        );
 
-        info!("opening discord oauth in browser, loopback {loopback}");
-        open_browser(&auth_url);
+        info!("opening login page in browser, loopback {loopback}");
+        open_browser(&login_url);
 
         match timeout(LOGIN_TIMEOUT, accept_callback(&listener)).await {
             Ok(Some(proof)) => Ok(proof),
@@ -567,31 +560,45 @@ fn log_refresh_failure(scope: &str, e: &BackendAuthError) {
     }
 }
 
-// accept connections until one carries valid /callback credentials
+enum CallbackOutcome {
+    Proof(LoginProof),
+    Bad,
+}
+
+// waits for the OAuth callback on GET /callback
 async fn accept_callback(listener: &TcpListener) -> Option<LoginProof> {
     loop {
         let (mut stream, _) = listener.accept().await.ok()?;
-        match read_callback(&mut stream).await {
-            Some(proof) => {
+        match handle_request(&mut stream).await {
+            CallbackOutcome::Proof(proof) => {
                 write_response(&mut stream, "200 OK", "text/html; charset=utf-8", LOGIN_SUCCESS_HTML).await;
                 return Some(proof);
             }
-            None => {
+            CallbackOutcome::Bad => {
                 write_response(&mut stream, "400 Bad Request", "text/plain; charset=utf-8", "bad request").await;
             }
         }
     }
 }
 
-async fn read_callback(stream: &mut TcpStream) -> Option<LoginProof> {
+async fn handle_request(stream: &mut TcpStream) -> CallbackOutcome {
     let mut buf = vec![0u8; 8192];
-    let n = stream.read(&mut buf).await.ok()?;
+    let n = match stream.read(&mut buf).await.ok() {
+        Some(n) => n,
+        None => return CallbackOutcome::Bad,
+    };
     let request = String::from_utf8_lossy(&buf[..n]);
+    let target = match request.lines().next().and_then(|l| l.split_whitespace().nth(1)) {
+        Some(t) => t.to_string(),
+        None => return CallbackOutcome::Bad,
+    };
 
-    let target = request.lines().next()?.split_whitespace().nth(1)?;
-    let (path, query) = target.split_once('?')?;
+    let (path, query) = match target.split_once('?') {
+        Some(pq) => pq,
+        None => return CallbackOutcome::Bad,
+    };
     if path != "/callback" {
-        return None;
+        return CallbackOutcome::Bad;
     }
 
     let mut provider = None;
@@ -607,11 +614,14 @@ async fn read_callback(stream: &mut TcpStream) -> Option<LoginProof> {
         }
     }
 
-    Some(LoginProof {
-        provider: provider?,
-        provider_id: provider_id?,
-        access_token: access_token?,
-    })
+    match (provider, provider_id, access_token) {
+        (Some(p), Some(pid), Some(at)) => CallbackOutcome::Proof(LoginProof {
+            provider: p,
+            provider_id: pid,
+            access_token: at,
+        }),
+        _ => CallbackOutcome::Bad,
+    }
 }
 
 async fn write_response(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
@@ -672,6 +682,7 @@ fn now_secs() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
+
 
 const LOGIN_SUCCESS_HTML: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
 <title>Signed in</title></head><body style=\"font-family:sans-serif;text-align:center;padding-top:4rem\">\
