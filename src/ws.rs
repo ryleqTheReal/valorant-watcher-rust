@@ -82,6 +82,7 @@ struct Tracker {
     cfg: Config,
     state: Option<String>,
     pregame: Option<JoinHandle<()>>,
+    ingame_loadout: Option<JoinHandle<()>>,
 }
 
 impl Tracker {
@@ -93,6 +94,7 @@ impl Tracker {
             cfg,
             state: None,
             pregame: None,
+            ingame_loadout: None,
         }
     }
 
@@ -111,7 +113,10 @@ impl Tracker {
                 self.stop_pregame();
                 self.bus.emit(Event::PregameEnded);
             }
-            Some("INGAME") => self.bus.emit(Event::MatchEnded),
+            Some("INGAME") => {
+                self.stop_ingame_loadout();
+                self.bus.emit(Event::MatchEnded);
+            }
             _ => {}
         }
 
@@ -129,10 +134,10 @@ impl Tracker {
             }
             "INGAME" => {
                 self.bus.emit(Event::MatchStarted);
-                tokio::spawn(fetch_ingame_loadouts(
+                self.ingame_loadout = Some(tokio::spawn(fetch_ingame_loadouts(
                     self.session.clone(),
                     self.backend.clone(),
-                ));
+                )));
             }
             _ => {}
         }
@@ -143,11 +148,18 @@ impl Tracker {
             handle.abort();
         }
     }
+
+    fn stop_ingame_loadout(&mut self) {
+        if let Some(handle) = self.ingame_loadout.take() {
+            handle.abort();
+        }
+    }
 }
 
 impl Drop for Tracker {
     fn drop(&mut self) {
         self.stop_pregame();
+        self.stop_ingame_loadout();
     }
 }
 
@@ -195,28 +207,40 @@ async fn poll_pregame(session: Arc<Session>, backend: Backend, interval_ms: u64)
     }
 }
 
-// fetch the active match loadouts once and forward them to the server
+// fetch the active match loadouts and forward them to the server, retrying every
+// 10s until success. the task is aborted by the caller when the match ends.
 async fn fetch_ingame_loadouts(session: Arc<Session>, backend: Backend) {
     let puuid = session.puuid().await;
-    let Some(match_id) = fetch_match_id(&session, &format!("/core-game/v1/players/{puuid}")).await
-    else {
-        warn!("no ingame match id returned");
-        return;
-    };
+    let player_path = format!("/core-game/v1/players/{puuid}");
 
-    let path = format!("/core-game/v1/matches/{match_id}/loadouts");
-    match session.fetch(Method::GET, Api::Glz, &path, None).await {
-        Ok(response) if response.status.is_success() => {
-            backend
-                .submit(
-                    &format!("/v1/account/match-loadouts?match_id={match_id}"),
-                    &response.body,
-                )
-                .await;
-            info!("ingame loadouts sent for match {match_id}");
+    loop {
+        let Some(match_id) = fetch_match_id(&session, &player_path).await else {
+            debug!("core-game not ready yet, retrying in 10s");
+            sleep(Duration::from_secs(10)).await;
+            continue;
+        };
+
+        let path = format!("/core-game/v1/matches/{match_id}/loadouts");
+        match session.fetch(Method::GET, Api::Glz, &path, None).await {
+            Ok(response) if response.status.is_success() => {
+                backend
+                    .submit(
+                        &format!("/v1/account/match-loadouts?match_id={match_id}"),
+                        &response.body,
+                    )
+                    .await;
+                info!("ingame loadouts sent for match {match_id}");
+                return;
+            }
+            Ok(response) => {
+                warn!("ingame loadouts returned {}, retrying in 10s", response.status);
+                sleep(Duration::from_secs(10)).await;
+            }
+            Err(e) => {
+                warn!("ingame loadouts fetch failed: {e}, retrying in 10s");
+                sleep(Duration::from_secs(10)).await;
+            }
         }
-        Ok(response) => warn!("ingame loadouts returned {}", response.status),
-        Err(e) => warn!("ingame loadouts fetch failed: {e}"),
     }
 }
 
